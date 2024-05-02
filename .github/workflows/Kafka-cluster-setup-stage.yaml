@@ -1,0 +1,150 @@
+name: Kafka Cluster Deployment (Stage)
+on:
+  workflow_dispatch
+
+env:
+  KAFKA_CLUSTERS_BOOTSTRAPSERVERS: "${{ secrets.KAFKA_CLUSTERS_BOOTSTRAPSERVERS }}"
+  KAFKA_CLUSTERS_NAME: "${{ secrets.KAFKA_CLUSTERS_NAME }}"
+  KUBE_CONFIG_DATA: "{{ secrets.KUBE_CONFIG_DATA }}"
+  LINODE_ACCESS_KEY: "${{ secrets.LINODE_ACCESS_KEY }}"
+  LINODE_CLI_TOKEN: "${{ secrets.LINODE_CLI_TOKEN }}"
+  LINODE_SECRET_KEY: "${{ secrets.LINODE_SECRET_KEY }}"
+  SPRING_SECURITY_USER_NAME: "${{ secrets.SPRING_SECURITY_USER_NAME }}"
+  SPRING_SECURITY_USER_PASSWORD: "${{ secrets.SPRING_SECURITY_USER_PASSWORD }}"
+  POOL_ID: "${{ vars.POOL_ID }}"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Stage-kafka
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+         github-token: ${{ secrets.POOL_ID }}
+
+      - name: Configure kubectl
+        uses: Azure/k8s-set-context@v1
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DATA }}
+
+                
+      - name: Check if Kafka namespace exists
+        run: |
+          if kubectl get namespace kafka > /dev/null 2>&1; then
+            echo "Kafka namespace already exists"
+          else
+            kubectl create namespace kafka
+          fi     
+      
+      - name: Add Helm Repo
+        id: add-helm-repo
+        run: |
+          # Attempt to add Helm repository
+          HELM_REPO_OUTPUT=$(helm repo add strimzi https://strimzi.io/charts/ 2>&1)
+          if echo "$HELM_REPO_OUTPUT" | grep -q "strimzi"; then
+            echo "Helm repository already exists"
+          else
+            echo "Helm repository added successfully"
+            echo "Helm repository output: $HELM_REPO_OUTPUT"
+          fi
+          
+      - name: Check if Kafka Operator is installed and pods are running
+        run: |
+          if helm list -n kafka | grep 'strimzi-operator'; then
+            echo "Strimzi Kafka Operator is already installed."  
+            envsubst < kafka/stage/values.yaml > kafka/stage/values-substituted.yaml
+            helm upgrade strimzi-operator strimzi/strimzi-kafka-operator -f kafka/stage/values-substituted.yaml -n kafka
+          else
+            # Substitute environment variables in the values.yaml file
+            envsubst < kafka/stage/values.yaml > kafka/stage/values-substituted.yaml
+            helm install strimzi-operator strimzi/strimzi-kafka-operator -f kafka/stage/values-substituted.yaml -n kafka
+            retries=10  # Number of retries
+            wait_time=10  # Initial wait time between retries in seconds
+            sleep 10
+            for ((i=0; i<$retries; i++)); do
+              if [[ $(kubectl get pods -n kafka | grep 'strimzi-cluster-operator' | awk '{print $3}' | grep -v 'Running' | wc -l) -ne 0 ]]; then
+                echo "Not all Strimzi Kafka Operator pods are running. Waiting for pods to be ready..."
+                sleep $wait_time
+              else
+                kubectl get pods -n kafka -l app=strimzi-cluster-operator
+                echo "Strimzi Kafka Operator pods are running."
+                break
+              fi
+              if [ $i -eq $((retries - 1)) ]; then
+                echo "Strimzi Kafka Operator pods are not running after waiting. Showing pod statuses:"
+                kubectl get pods -n kafka | grep 'strimzi-cluster-operator'
+                exit 1
+              fi
+            done
+          fi
+      
+      - name: Check Kafka Deployment YAML and Wait for Pods
+        run: |
+         if kubectl get kafka -n kafka -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' | grep -q True; then
+           echo "Kafka cluster is ready."
+         else
+           # Fetching POOL_ID using envsubst
+           envsubst < kafka/stage/kafka-cluster-stage.yaml > kafka/stage/kafka-cluster-stage-substituted.yaml
+           sed -i "s/\$POOL_ID/${{ vars.POOL_ID }}/g" kafka/stage/kafka-cluster-stage-substituted.yaml
+           kubectl apply -f kafka/stage/kafka-cluster-stage-substituted.yaml -n kafka
+           
+           retries=50  # Number of retries
+           wait_time=20  # Initial wait time between retries in seconds
+           sleep 10
+           for ((i=0; i<$retries; i++)); do
+             if [[ $(kubectl get pods -n kafka -l app=kafka --no-headers=true | grep 'coto-kafka-qa-cluster-zookeeper' | awk '{print $3}' | grep -v 'Running' | wc -l) -ne 0 ]]; then               
+               kubectl get pods -n kafka -l app=kafka
+               echo "Not all Zookeeper Deployment pods are running. Waiting for pods to be ready..."
+               sleep $wait_time
+               wait_time=$((wait_time * 2))  # Exponential backoff for wait time
+             elif [[ $(kubectl get pods -n kafka -l app=kafka --no-headers=true | grep 'coto-kafka-qa-cluster-zookeeper' | awk '{print $2}' | grep -v '1/1' | wc -l) -ne 0 ]]; then    
+               kubectl get pods -n kafka -l app=kafka
+               echo "Not all Zookeeper Deployment pods are running. Waiting for pods to be ready..."
+               sleep $wait_time
+               wait_time=$((wait_time * 2))  # Exponential backoff for wait time
+             elif [[ $(kubectl get pods -n kafka -l app=kafka --no-headers=true | grep 'coto-kafka-qa-cluster-kafka' | awk '{print $3}' | grep -v 'Running' | wc -l) -ne 0 ]]; then               
+               kubectl get pods -n kafka -l app=kafka
+               echo "Not all Kafka Deployment pods are running. Waiting for pods to be ready..."
+               sleep $wait_time
+               wait_time=$((wait_time * 2))  # Exponential backoff for wait time
+             elif [[ $(kubectl get pods -n kafka -l app=kafka --no-headers=true | grep 'coto-kafka-qa-cluster-kafka' | awk '{print $2}' | grep -v '1/1' | wc -l) -ne 0 ]]; then    
+               kubectl get pods -n kafka -l app=kafka
+               echo "Not all Kafka Deployment pods are running. Waiting for pods to be ready..."
+               sleep $wait_time
+               wait_time=$((wait_time * 2))  # Exponential backoff for wait time
+             elif [[ $(kubectl get pods -n kafka -l app=kafka --no-headers=true | grep 'coto-kafka-qa-cluster-entity-operator' | awk '{print $3}' | grep -v 'Running' | wc -l) -ne 0 ]]; then               
+               kubectl get pods -n kafka -l app=kafka
+               echo "Not all Kafka Deployment pods are running. Waiting for pods to be ready..."
+               sleep $wait_time
+               wait_time=$((wait_time * 2))  # Exponential backoff for wait time
+             elif [[ $(kubectl get pods -n kafka -l app=kafka --no-headers=true | grep 'coto-kafka-qa-cluster-entity-operator' | awk '{print $2}' | grep -v '2/2' | wc -l) -ne 0 ]]; then    
+               kubectl get pods -n kafka -l app=kafka
+               echo "Not all entity operator Deployment pods are running. Waiting for pods to be ready..."
+               sleep $wait_time
+               wait_time=$((wait_time * 2))  # Exponential backoff for wait time
+             else
+               kubectl get pods -n kafka -l app=kafka
+               echo "All Kafka Deployment pods are running."
+               break
+             fi
+             
+             if [ $i -eq $((retries - 1)) ]; then
+               echo "Kafka Deployment pods are not running after waiting. Showing pod statuses:"
+               kubectl get pods -n kafka -l app=kafka
+               exit 1
+             fi
+           done
+         fi
+
+      - name: Apply Kafka UI YAML
+        run: |
+          envsubst < kafka/stage/kafka-ui-stage.yaml > kafka/stage/kafka-ui-stage-substituted.yaml
+          sed -i "s/\$POOL_ID/${{ vars.POOL_ID }}/g" kafka/stage/kafka-ui-stage-substituted.yaml
+          kubectl apply -f kafka/stage/kafka-ui-stage-substituted.yaml -n kafka
+
+     
+      - name: Verify all pods in namespace kafka
+        run: |
+          kubectl get pods -n kafka

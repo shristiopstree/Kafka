@@ -1,0 +1,29 @@
+name: Kafka ingress Setup (Stage)
+
+on: workflow_dispatch
+
+env:
+  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Stage-kafka
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: Azure/k8s-set-context@v1
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DATA }}
+      
+      - name: Apply Ingress YAML
+        run: |
+          if kubectl get ingress -n kafka kafka-ingress > /dev/null 2>&1; then
+            echo "Ingress already exists."
+          else
+            kubectl apply -f kafka/stage/ingress-stage.yaml -n kafka
+          fi

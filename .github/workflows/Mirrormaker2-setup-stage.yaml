@@ -1,0 +1,58 @@
+name: Mirror-maker Deployment (Stage)
+
+on: workflow_dispatch
+
+env:
+  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+  POOL_ID: "${{ vars.POOL_ID }}"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Stage-kafka
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: Azure/k8s-set-context@v1
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DATA }}
+
+
+      - name: Check if Kafka namespace exists
+        run: |
+            if kubectl get namespace kafka > /dev/null 2>&1; then
+              echo "Kafka namespace already exists."
+            else
+              kubectl create namespace kafka
+            fi
+
+      - name: Check if MirrorMaker2 deployment exists
+        run: |
+          if kubectl get deployment -n kafka mirrormaker2 > /dev/null 2>&1; then
+            echo "MirrorMaker2 deployment already exists."
+          else
+            echo "MirrorMaker2 deployment does not exist. Deploying..."
+            envsubst < kafka/stage/mirrormaker2-stage.yaml > kafka/stage/mirrormaker2-stage-substituted.yaml
+            sed -i "s/\$POOL_ID/${{ vars.POOL_ID }}/g" kafka/stage/mirrormaker2-stage-substituted.yaml
+            kubectl apply -f kafka/stage/mirrormaker2-stage-substituted.yaml -n kafka
+          fi
+
+      - name: Wait for MirrorMaker2 pods to be running
+        run: |
+          retries=5   # Number of retries
+          wait_time=10 # Wait time between retries in seconds
+          for ((i=0; i<$retries; i++)); do
+            if kubectl get pods -n kafka -l app=mirrormaker2-pod --field-selector=status.phase=Running | grep -q '1/1'; then
+              echo "All MirrorMaker2 pods are running."
+              exit 0
+            else
+              echo "Waiting for MirrorMaker2 pods to be running..."
+            fi
+            sleep $wait_time
+          done
+          echo "MirrorMaker2 pods are not all running after waiting. Please check the deployment."
+          exit 1

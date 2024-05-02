@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mirrormaker2-pv
+spec:
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-storage
+  local:
+    path: /mnt/
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: lke.linode.com/pool-id
+          operator: In
+          values: 
+            - "${POOL_ID}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mirrormaker2-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  volumeName: mirrormaker2-pv
+  resources:
+    requests:
+      storage: 1Gi  
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mirrormaker2
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mirrormaker2-pod
+  template:
+    metadata:
+      labels:
+        app: mirrormaker2-pod
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: lke.linode.com/pool-id
+                operator: In
+                values: 
+                  - "${POOL_ID}"
+
+      containers:
+      - name: ubuntu-container
+        image: 123456devops/mirrorpod:v2
+        command: ["/bin/bash", "-c"]
+        args:
+        - "while true; do sleep 3600; done"
+        volumeMounts:
+        - name: data-volume
+          mountPath: /home/ubuntu/kafka  
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: mirrormaker2-pvc 
+

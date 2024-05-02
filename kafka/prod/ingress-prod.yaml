@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kafka-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+  labels:
+    app: kafka-ingress
+    environment: prod-lke
+spec:
+  rules:
+  - host: xyz.example.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: kafka-ui-service
+            port:
+              number: 8080
+

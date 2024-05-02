@@ -1,0 +1,12 @@
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: lke.linode.com/pool-id
+              operator: In
+              values:
+                - "${POOL_ID}"
+envFrom:
+  - secretRef:
+      name: kafka-secrets

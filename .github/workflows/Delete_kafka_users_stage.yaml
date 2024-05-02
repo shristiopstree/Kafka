@@ -1,0 +1,53 @@
+name: Delete_Kafka_Users_stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      delete_users:
+        description: 'Comma-separated list of Kafka users to delete'
+        required: true
+
+env:
+  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+
+jobs:
+  delete_users_job:
+    runs-on: ubuntu-latest
+    environment: Stage-kafka
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: Azure/k8s-set-context@v1
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DATA }}
+          
+      - name: Install Linode CLI (linode-cli)
+        run: |
+          if ! command -v linode-cli &> /dev/null; then
+            echo "Linode CLI is not installed. Installing..."
+            pip3 install linode-cli
+            pip3 install boto3
+          else
+            echo "Linode CLI is already installed."
+          fi
+      
+      - name: Delete Kafka Users
+        run: |
+          IFS=',' read -ra DELETE_USERS <<< "${{ github.event.inputs.delete_users }}"
+          for user in "${DELETE_USERS[@]}"; do
+            kubectl delete kafkauser $user -n kafka
+          done
+      
+      - name: Delete uploaded sasl_config from Linode Object Storage
+        env:
+          LINODE_CLI_TOKEN: ${{ secrets.LINODE_CLI_TOKEN }}
+          LINODE_CLI_OBJ_ACCESS_KEY: ${{ secrets.LINODE_ACCESS_KEY }}
+          LINODE_CLI_OBJ_SECRET_KEY: ${{ secrets.LINODE_SECRET_KEY }}
+        run: |
+          IFS=',' read -ra DELETE_USERS <<< "${{ github.event.inputs.delete_users }}"
+          for user in "${DELETE_USERS[@]}"; do
+            linode-cli obj del --cluster in-maa-1 "coto-wrld" "stage-kafka-details/${user}_sasl_config.txt"
+          done

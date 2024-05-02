@@ -1,0 +1,151 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: coto-kafka-qa-cluster
+  namespace: kafka
+  labels:
+    app: kafka
+    environment: qa-lke
+spec:
+  kafka:
+    version: 3.6.1
+    replicas: 3
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: false
+      - name: external
+        port: 9094
+        type: loadbalancer
+        tls: false
+        authentication:
+          type: scram-sha-512
+    resources:
+      requests:
+        memory: "8Gi"
+        cpu: "1"
+      limits:
+        memory: "8Gi"
+        cpu: "2"
+    template:
+      podDisruptionBudget:
+        maxUnavailable: 0
+      pod:
+        metadata:
+          annotations:
+            ad.datadoghq.com/kafka.checks: |
+              {
+                "kafka": {
+                  "init_config": {
+                    "is_jmx": true, 
+                    "collect_default_metrics": true, 
+                    "new_gc_metrics": true,
+                    "collect_default_jvm_metrics": true
+                  },
+                  "instances":[
+                    {
+                      "host": "%%host%%",
+                      "port": "9999"
+                    }
+                  ]
+                }
+              }
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: lke.linode.com/pool-id
+                      operator: In
+                      values:
+                        - "${POOL_ID}"
+        tolerations:
+          - key: "kubernetes.azure.com/scalesetpriority"
+            operator: "Equal"
+            value: "spot"
+            effect: "NoSchedule"                        
+    config:
+      default.replication.factor:                3
+      min.insync.replicas:                       1
+      offsets.topic.replication.factor:          3
+      transaction.state.log.min.isr:             3
+      transaction.state.log.replication.factor:  3
+      zookeeper.connection.timeout.ms:           6000
+    jmxOptions: {}
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: 15Gi
+          deleteClaim: false
+          class: linode-block-storage-retain 
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 15Gi 
+      class: linode-block-storage-retain 
+      deleteClaim: false
+    resources:
+      requests:
+        memory: "3Gi"
+        cpu: "1"
+      limits:
+        memory: "3Gi"
+        cpu: "2"
+    jvmOptions:
+      -Xms: 2048m
+      -Xmx: 2048m
+    template:
+      podDisruptionBudget:
+        maxUnavailable: 0
+      pod:
+        metadata:
+          annotations:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: lke.linode.com/pool-id
+                      operator: In
+                      values:
+                        - "${POOL_ID}"
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          memory: "256Mi"
+          cpu: "200m"
+        limits:
+          memory: "256Mi"
+          cpu: "1"
+    userOperator:
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "200m"
+        limits:
+          memory: "512Mi"
+          cpu: "1"
+    template:
+      pod:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: lke.linode.com/pool-id
+                      operator: In
+                      values:
+                        - "${POOL_ID}"
+
+
+
+

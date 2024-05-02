@@ -1,0 +1,74 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-secrets
+  namespace: kafka
+type: Opaque
+stringData:
+  KAFKA_CLUSTERS_BOOTSTRAPSERVERS: "${KAFKA_CLUSTERS_BOOTSTRAPSERVERS}"
+  KAFKA_CLUSTERS_NAME: "${KAFKA_CLUSTERS_NAME}"
+  KUBE_CONFIG_DATA: "${KUBE_CONFIG_DATA}"
+  LINODE_ACCESS_KEY: "${LINODE_ACCESS_KEY}"
+  LINODE_CLI_TOKEN: "${LINODE_CLI_TOKEN}"
+  LINODE_SECRET_KEY: "${LINODE_SECRET_KEY}"
+  SPRING_SECURITY_USER_NAME: "${SPRING_SECURITY_USER_NAME}"
+  SPRING_SECURITY_USER_PASSWORD: "${SPRING_SECURITY_USER_PASSWORD}"
+  POOL_ID: "${POOL_ID}"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui-deployment
+  labels:
+    app: kafka-ui
+    environment: qa-lke
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: lke.linode.com/pool-id
+                operator: In
+                values: 
+                   - "${POOL_ID}"
+                  
+      containers:
+      - name: kafka-ui
+        image: provectuslabs/kafka-ui:latest
+        envFrom:
+          - secretRef:
+              name: kafka-secrets
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "500Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui-service
+spec:
+  selector:
+    app: kafka-ui
+  ports:
+    - protocol: TCP
+      port: 8080  
+  type: LoadBalancer  
