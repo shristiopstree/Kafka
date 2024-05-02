@@ -475,6 +475,6 @@ jobs:
 
 Note:- 
 
-Kindly set the Environment varibales in Github secrets.
+Kindly set the Environment secrets and variables in Github settings.
 
 ![Screenshot from 2024-04-25 22-41-44](https://github.com/Eve-World-Platform/deployment-pipelines-airflow-kafka/assets/112183257/3df930d4-b080-4be3-815e-1745f2b39155)
